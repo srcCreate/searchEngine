@@ -37,6 +37,9 @@ public class IndexingServiceImpl implements IndexingService{
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
 
+
+    // Реализован метод, но пока что без многопоточности. Сначала хочу разобраться как будет происходить работа метода.
+    // позже добавлю потоки.
     @Override
     public PageIndexer startIndexing() {
         int numFlow = Runtime.getRuntime().availableProcessors() - 1;

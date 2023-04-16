@@ -34,7 +34,7 @@ public class ApiController {
         return ResponseEntity.ok(statisticsService.getStatistics());
     }
 
-    // write method
+    // add controller
     @GetMapping("/startIndexing")
     public void startIndexing() {
         ResponseEntity.ok(indexingService.startIndexing());

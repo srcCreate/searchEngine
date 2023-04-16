@@ -23,6 +23,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveTask;
 
+
+/*
+    Данный класс пока не используется, пока не пойму нужен ли будет вообще.
+ */
+
 @Data
 public class PageIndexer extends RecursiveTask<String> {
     private final SitesList sites;
