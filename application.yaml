@@ -11,10 +11,10 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQL5Dialect
-#        connection:
-#          characterEncoding: utf-8
-#          CharSet: utf-8
-#          useUnicode: true
+        connection:
+          characterEncoding: utf-8
+          CharSet: utf-8
+          useUnicode: true
     hibernate:
       ddl-auto: create-drop
     show-sql: true

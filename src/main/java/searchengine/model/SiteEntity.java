@@ -16,7 +16,7 @@ public class SiteEntity {
     @Id
     private int id;
 
-    @OneToMany(mappedBy = "siteId", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "siteId", cascade = CascadeType.MERGE, orphanRemoval = true)
     @Column(name = "pages")
     private Set<PageEntity> page;
 

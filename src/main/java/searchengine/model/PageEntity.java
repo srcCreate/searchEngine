@@ -15,7 +15,8 @@ public class PageEntity {
     @GeneratedValue(strategy = GenerationType.AUTO)
     private int id;
 
-    @ManyToOne(cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    //Без cascade работало
+    @ManyToOne(cascade = CascadeType.MERGE, fetch = FetchType.LAZY)
     private SiteEntity siteId;
 
     @Column(columnDefinition = "TEXT", nullable = false)
@@ -24,6 +25,7 @@ public class PageEntity {
     @Column(columnDefinition = "INT", nullable = false)
     private int code;
 
-    @Column(columnDefinition = "MEDIUMTEXT", nullable = false)
+    @Column(name = "content", nullable = false,
+            columnDefinition = "mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci")
     private String content;
 }
