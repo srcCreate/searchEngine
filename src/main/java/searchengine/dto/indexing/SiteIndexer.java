@@ -10,13 +10,9 @@ import searchengine.model.*;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.RecursiveAction;
-import java.util.concurrent.RecursiveTask;
 import java.util.regex.Pattern;
 
 
@@ -39,15 +35,17 @@ public class SiteIndexer extends RecursiveAction {
     protected void compute() {
 
         //Обходим список сайтов, удаляя пройденные создаем и разветвляем на форки SiteIndexerы
-        for (Site currentSite : sites) {
+        Iterator<Site> iterator = sites.iterator();
 
-            sites.remove(currentSite);
+        while (iterator.hasNext()) {
+            Site currentSite = iterator.next();
+            iterator.remove();
             SiteIndexer newIndexer = new SiteIndexer(sites, siteRepository, pageRepository);
             siteIndexerList.add(newIndexer);
             newIndexer.fork();
             newIndexer.siteEntityCreator(currentSite);
-
         }
+
         //Объединяем каждый их SiteIndexеr
         siteIndexerList.forEach(ForkJoinTask::join);
     }
