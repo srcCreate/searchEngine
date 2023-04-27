@@ -1,7 +1,7 @@
 package searchengine.services;
 
-import searchengine.dto.indexing.PageIndexer;
+import searchengine.dto.indexing.SiteIndexer;
 
 public interface IndexingService {
-    PageIndexer startIndexing();
+    SiteIndexer startIndexing();
 }

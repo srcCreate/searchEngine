@@ -2,13 +2,10 @@ package searchengine.services;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import searchengine.config.Site;
 import searchengine.config.SitesList;
-import searchengine.dto.indexing.PageIndexer;
 import searchengine.dto.indexing.SiteIndexer;
 import searchengine.model.*;
 
-import java.util.Arrays;
 import java.util.concurrent.ForkJoinPool;
 
 @Service
@@ -21,7 +18,7 @@ public class IndexingServiceImpl implements IndexingService {
     private final PageRepository pageRepository;
 
     @Override
-    public PageIndexer startIndexing() {
+    public SiteIndexer startIndexing() {
         int numFlow = Runtime.getRuntime().availableProcessors() - 1;
 
         long start = System.currentTimeMillis();

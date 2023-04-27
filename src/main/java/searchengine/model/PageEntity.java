@@ -15,7 +15,6 @@ public class PageEntity {
     @GeneratedValue(strategy = GenerationType.AUTO)
     private int id;
 
-    //Без cascade работало
     @ManyToOne(cascade = CascadeType.MERGE, fetch = FetchType.LAZY)
     private SiteEntity siteId;
 
