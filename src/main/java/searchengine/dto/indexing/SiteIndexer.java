@@ -6,6 +6,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import searchengine.config.Site;
+import searchengine.dto.errors.IndexingError;
 import searchengine.model.*;
 
 import java.io.IOException;
@@ -17,13 +18,11 @@ import java.util.regex.Pattern;
 
 
 public class SiteIndexer extends RecursiveAction {
-    private List<Site> sites;
-    private Set<PageEntity> pages = new HashSet<>();
+    private final List<Site> sites;
+    private final List<SiteIndexer> siteIndexerList = new ArrayList<>();
 
-    private List<SiteIndexer> siteIndexerList = new ArrayList<>();
-
-    private SiteRepository siteRepository;
-    private PageRepository pageRepository;
+    private final SiteRepository siteRepository;
+    private final PageRepository pageRepository;
 
     public SiteIndexer(List<Site> sites, SiteRepository siteRepository, PageRepository pageRepository) {
         this.sites = sites;
@@ -54,35 +53,46 @@ public class SiteIndexer extends RecursiveAction {
         System.out.println("Start " + Thread.currentThread().getName() + "\n");
 
         String url = site.getUrl();
-        SiteEntity indexingSite = new SiteEntity();
-        indexingSite.setStatus(Status.INDEXING);
-        indexingSite.setStatusTime(LocalDateTime.now());
-        indexingSite.setLastError("TEST MESSAGE");
-        indexingSite.setUrl(url);
-        indexingSite.setName(site.getName());
-
-        PageIndexer pageIndexer = new PageIndexer(indexingSite, url);
-        pages = pageIndexer.parseSite();
-
-        System.out.println("END " + Thread.currentThread().getName() + "\n");
-
+        String name = site.getName();
+        String emptyStringError = "";
+        PageIndexer pageIndexer = new PageIndexer(Status.INDEXING, LocalDateTime.now(),
+                emptyStringError, url, name);
+        pageIndexer.parseSite();
     }
 
     private class PageIndexer {
-        private final SiteEntity indexingSite;
-        private String url;
 
-        private PageIndexer(SiteEntity indexingSite, String url) {
-            this.indexingSite = indexingSite;
-            this.url = url;
+        private final Status status;
+        private final LocalDateTime statusTime;
+        private final String lastError;
+        private final String siteUrl;
+        private final String name;
+        private final Set<PageEntity> pages = new HashSet<>();
+
+        private PageIndexer(Status status, LocalDateTime statusTime, String lastError,
+                            String siteUrl, String name) {
+//            this.indexingSite = indexingSite;
+            this.status = status;
+            this.statusTime = statusTime;
+            this.lastError = lastError;
+            this.siteUrl = siteUrl;
+            this.name = name;
         }
 
-        private Set<PageEntity> parseSite() {
+        private SiteEntity parseSite() {
+            SiteEntity indexingSite = new SiteEntity();
+            indexingSite.setStatus(status);
+            indexingSite.setStatusTime(statusTime);
+            indexingSite.setLastError("");
+            indexingSite.setUrl(siteUrl);
+            indexingSite.setName(name);
+
+
             Pattern pattern = Pattern.compile("\\.pdf$");
             Document document;
 
             try {
-                Connection connection = Jsoup.connect(url);
+                Connection connection = Jsoup.connect(siteUrl);
                 connection.userAgent("Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) " +
                         "Gecko/20070725 Firefox/2.0.0.6");
                 connection.referrer("http://www.google.com");
@@ -95,11 +105,7 @@ public class SiteIndexer extends RecursiveAction {
                 for (Element element : elements) {
                     String attr = element.attr("abs:href");
 
-                    if (pattern.matcher(attr).find()) {
-                        continue;
-                    }
-
-                    if (!attr.isEmpty() && attr.startsWith(url) && !attr.contains("#")) {
+                    if (!attr.isEmpty() && attr.startsWith(siteUrl) && !attr.contains("#")) {
                         try {
                             Connection.Response response = Jsoup.connect(attr)
                                     .userAgent("Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) " +
@@ -107,7 +113,7 @@ public class SiteIndexer extends RecursiveAction {
                                     .timeout(10000)
                                     .execute();
 
-                            String attr1 = attr.replace(url, "");
+                            String attr1 = attr.replace(siteUrl, "");
                             int lastChar = attr1.length() - 1;
                             if (!attr1.trim().isEmpty() && attr1.charAt(lastChar) == '/') {
                                 attr1 = attr1.substring(0, lastChar);
@@ -123,19 +129,29 @@ public class SiteIndexer extends RecursiveAction {
                                 pages.add(indexingPage);
                             }
                         } catch (IOException e) {
-                            throw new RuntimeException(e);
+                            if (pattern.matcher(attr).find()) {
+                                indexingSite.setStatus(Status.FAILED);
+                                indexingSite.setLastError(e.getMessage());
+                                indexingSite.setPage(null);
+                                siteRepository.save(indexingSite);
+                                System.out.println("END " + Thread.currentThread().getName() + "\n");
+                                return indexingSite;
+                            } else throw new RuntimeException(e);
                         }
                     }
                 }
 
+                indexingSite.setStatus(Status.INDEXED);
+
                 siteRepository.save(indexingSite);
 
                 pages.forEach(pageRepository::save);
+
+                System.out.println("END " + Thread.currentThread().getName() + "\n");
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
-
-            return pages;
+            return indexingSite;
         }
     }
 }
