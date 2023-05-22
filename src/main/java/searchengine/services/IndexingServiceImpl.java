@@ -17,17 +17,25 @@ public class IndexingServiceImpl implements IndexingService {
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
 
+    private ForkJoinPool pool;
+    private SiteIndexer task;
     @Override
     public SiteIndexer startIndexing() {
-        int numFlow = Runtime.getRuntime().availableProcessors() - 1;
-
         long start = System.currentTimeMillis();
 
-        SiteIndexer task = new SiteIndexer(sites.getSites(), siteRepository, pageRepository);
-        ForkJoinPool.commonPool().invoke(task);
-
+        task = new SiteIndexer(sites.getSites(), siteRepository, pageRepository);
+        pool = ForkJoinPool.commonPool();
+        pool.invoke(task);
         System.out.println("Индексация сайтов завершена за " + (System.currentTimeMillis() - start) + " миллисекунд");
+        return null;
+    }
 
+    @Override
+    public SiteIndexer stopIndexing() {
+        pool.shutdown();
+        task.setStoped();
+
+        System.out.println("Индексация завершена по требованию пользователя");
         return null;
     }
 }

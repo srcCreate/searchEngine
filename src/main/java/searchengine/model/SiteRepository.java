@@ -5,5 +5,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface SiteRepository extends JpaRepository<SiteEntity, Integer> {
-
+//    Optional<SiteEntity> findBySessionId(String sessionId);
 }

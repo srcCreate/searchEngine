@@ -32,9 +32,13 @@ public class ApiController {
         return ResponseEntity.ok(statisticsService.getStatistics());
     }
 
-    // add controller
     @GetMapping("/startindexing")
     public void startIndexing() {
         ResponseEntity.ok(indexingService.startIndexing());
+    }
+
+    @GetMapping("/stopindexing")
+    public void stopIndexing() {
+        ResponseEntity.ok(indexingService.stopIndexing());
     }
 }

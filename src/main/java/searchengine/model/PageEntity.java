@@ -12,7 +12,7 @@ import javax.persistence.*;
 public class PageEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
 
     @ManyToOne(cascade = CascadeType.MERGE, fetch = FetchType.LAZY)

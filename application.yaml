@@ -16,16 +16,32 @@ spring:
           CharSet: utf-8
           useUnicode: true
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: create
     show-sql: true
 
 # example values
 
 indexing-settings:
   sites:
-    - url: https://lenta.ru
-      name: Лента.ру
-    - url: https://skillbox.ru
-      name: Skillbox
+#    - url: https://lenta.ru
+#      name: Лента.ру
+#    - url: https://skillbox.ru
+#      name: Skillbox
     - url: https://www.playback.ru
       name: PlayBack.Ru
+
+    - url: https://radiomv.ru/
+      name: Милицейская волна
+#    - url: https://volochek.life/
+#      name: Вышний Волочёк
+#    - url: https://ipfran.ru/
+#      name: Федеральный исследовательский центр
+#    - url: https://dimonvideo.ru/
+#      name: ДимонВидео
+
+    - url: https://et-cetera.ru/mobile/
+      name: Театр Et Cetera
+#       Проблемы с сертификатами
+#    - url: https://nikoartgallery.com/
+#      name: Нико галерея
+
