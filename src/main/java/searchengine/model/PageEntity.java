@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import javax.persistence.*;
+import java.util.Set;
 
 @Getter
 @Setter
@@ -27,4 +28,8 @@ public class PageEntity {
     @Column(name = "content", nullable = false,
             columnDefinition = "mediumtext CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci")
     private String content;
+
+    @OneToMany(mappedBy = "pageId", cascade = CascadeType.MERGE, orphanRemoval = true)
+    @Column(name = "indexes")
+    private Set<IndexEntity> indexes;
 }

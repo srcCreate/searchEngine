@@ -16,6 +16,10 @@ public class IndexingServiceImpl implements IndexingService {
 
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
+    private final LemmaRepository lemmaRepository;
+    private final IndexRepository indexRepository;
+
+    private volatile boolean isStopped = false;
 
     private ForkJoinPool pool;
     private SiteIndexer task;
@@ -23,7 +27,7 @@ public class IndexingServiceImpl implements IndexingService {
     public SiteIndexer startIndexing() {
         long start = System.currentTimeMillis();
 
-        task = new SiteIndexer(sites.getSites(), siteRepository, pageRepository);
+        task = new SiteIndexer(sites.getSites(), siteRepository, pageRepository, lemmaRepository, indexRepository, isStopped);
         pool = ForkJoinPool.commonPool();
         pool.invoke(task);
         System.out.println("Индексация сайтов завершена за " + (System.currentTimeMillis() - start) + " миллисекунд");
@@ -32,8 +36,10 @@ public class IndexingServiceImpl implements IndexingService {
 
     @Override
     public SiteIndexer stopIndexing() {
-        pool.shutdown();
-        task.setStoped();
+        isStopped = true;
+        if (pool != null) {
+            pool.shutdown();
+        }
 
         System.out.println("Индексация завершена по требованию пользователя");
         return null;

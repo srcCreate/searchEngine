@@ -11,12 +11,13 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQL5Dialect
+#        dialect: org.hibernate.dialect.MySQL8Dialect
         connection:
           characterEncoding: utf-8
           CharSet: utf-8
           useUnicode: true
     hibernate:
-      ddl-auto: create
+      ddl-auto: update
     show-sql: true
 
 # example values
@@ -27,11 +28,13 @@ indexing-settings:
 #      name: Лента.ру
 #    - url: https://skillbox.ru
 #      name: Skillbox
+
     - url: https://www.playback.ru
       name: PlayBack.Ru
 
     - url: https://radiomv.ru/
       name: Милицейская волна
+
 #    - url: https://volochek.life/
 #      name: Вышний Волочёк
 #    - url: https://ipfran.ru/
@@ -41,6 +44,7 @@ indexing-settings:
 
     - url: https://et-cetera.ru/mobile/
       name: Театр Et Cetera
+
 #       Проблемы с сертификатами
 #    - url: https://nikoartgallery.com/
 #      name: Нико галерея

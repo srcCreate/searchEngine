@@ -15,6 +15,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 import java.util.regex.Pattern;
 
@@ -25,12 +26,21 @@ public class SiteIndexer extends RecursiveAction {
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
 
-    private boolean isStoped = false;
 
-    public SiteIndexer(List<Site> sites, SiteRepository siteRepository, PageRepository pageRepository) {
+    private final LemmaRepository lemmaRepository;
+
+
+    private final IndexRepository indexRepository;
+
+    private final boolean isStoped;
+
+    public SiteIndexer(List<Site> sites, SiteRepository siteRepository, PageRepository pageRepository, LemmaRepository lemmaRepository, IndexRepository indexRepository, boolean isStoped) {
         this.sites = sites;
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
+        this.lemmaRepository = lemmaRepository;
+        this.indexRepository = indexRepository;
+        this.isStoped = isStoped;
     }
 
     @Override
@@ -41,7 +51,7 @@ public class SiteIndexer extends RecursiveAction {
         while (iterator.hasNext()) {
             Site currentSite = iterator.next();
             iterator.remove();
-            SiteIndexer newIndexer = new SiteIndexer(sites, siteRepository, pageRepository);
+            SiteIndexer newIndexer = new SiteIndexer(sites, siteRepository, pageRepository, lemmaRepository, indexRepository, isStoped);
             siteIndexerList.add(newIndexer);
             newIndexer.fork();
             newIndexer.siteEntityCreator(currentSite);
@@ -56,7 +66,6 @@ public class SiteIndexer extends RecursiveAction {
                 break;
             }
         }
-//        siteIndexerList.forEach(ForkJoinTask::join);
     }
 
     private void siteEntityCreator(Site site) {
@@ -70,10 +79,6 @@ public class SiteIndexer extends RecursiveAction {
         pageIndexer.parseSite();
     }
 
-    public void setStoped() {
-        isStoped = true;
-    }
-
     private class PageIndexer {
 
         private final Status status;
@@ -83,13 +88,16 @@ public class SiteIndexer extends RecursiveAction {
         private final String name;
         private final Statement stmt;
 
+        private Lemmatizator lemmatizator;
+
         // Подключение к БД с целью получения Statement stmt
         {
             try {
+                lemmatizator = Lemmatizator.getInstance();
                 java.sql.Connection connect = DriverManager.
                         getConnection("jdbc:mysql://localhost/search_engine", "root", "pass");
                 stmt = connect.createStatement();
-            } catch (SQLException e) {
+            } catch (SQLException | IOException e) {
                 throw new RuntimeException(e);
             }
         }
@@ -131,14 +139,19 @@ public class SiteIndexer extends RecursiveAction {
 
                 // Создаем Set для будущих дочерних ссылок
                 Set<PageEntity> pages = new HashSet<>();
+                List<LemmaEntity> lemmaEntities = new ArrayList<>();
+                List<IndexEntity> indexEntities = new ArrayList<>();
 
                 // Обновляем дочерние ссылки
-                linkCrawling(pages, indexingSite, siteUrlWithHttps.toString());
+                pageLinksCrawling(pages, indexingSite, lemmaEntities, indexEntities, siteUrlWithHttps.toString());
 
                 // Проверка на ошибку индексации
                 if (indexingSite.getLastError().isEmpty()) {
                     pages.forEach(pageRepository::save);
                 }
+
+                lemmaEntities.forEach(lemmaRepository::save);
+                indexEntities.forEach(indexRepository::save);
 
                 System.out.println("END parsing " + siteUrl);
                 System.out.println("END " + Thread.currentThread().getName() + "\n");
@@ -156,8 +169,10 @@ public class SiteIndexer extends RecursiveAction {
         }
 
         // Метод индексации дочерних ссылок
-        private SiteEntity linkCrawling(Set<PageEntity> pages, SiteEntity indexingSite, String siteUrlWithHttps) {
-            Connection.Response response = null;
+        private SiteEntity pageLinksCrawling(Set<PageEntity> pages, SiteEntity indexingSite,
+                                             List<LemmaEntity> lemmaEntities, List<IndexEntity> indexEntities,
+                                             String siteUrlWithHttps) {
+            Connection.Response response;
 
             // Паттерн проверки ссылок на pdf документ
             Pattern pattern = Pattern.compile("\\.pdf$");
@@ -177,9 +192,9 @@ public class SiteIndexer extends RecursiveAction {
                 for (Element element : elements) {
                     String attr = element.attr("abs:href");
 
-                    String attr1 = trimLink(attr);
+                    String trimLink = trimLink(attr);
 
-                    if (isRepeatLink("page", "path", attr1)) {
+                    if (isRepeatLink("page", "path", trimLink)) {
                         continue;
                     }
 
@@ -191,13 +206,45 @@ public class SiteIndexer extends RecursiveAction {
                                     .timeout(10000)
                                     .execute();
 
-                            if (links.add(attr1)) {
+                            if (links.add(trimLink)) {
                                 PageEntity indexingPage = new PageEntity();
                                 indexingPage.setSiteId(indexingSite);
-                                indexingPage.setPath(attr1);
+                                indexingPage.setPath(trimLink);
                                 indexingPage.setContent(response.parse().html());
                                 indexingPage.setCode(response.statusCode());
                                 pages.add(indexingPage);
+
+                                //Получаем код страницы
+                                String pageContent = indexingPage.getContent();
+                                //Убираем html разметку
+                                String pageText = Jsoup.parse(pageContent).text();
+                                //Получаем леммы и их частоту
+                                Map<String, Integer> lemmas = lemmatizator.collectLemmas(pageText);
+
+                                //Пишем полученные значения в таблицы lemma и index_table
+                                LemmaEntity lemmaEntity = new LemmaEntity();
+                                IndexEntity indexEntity = new IndexEntity();
+
+                                for (var entry : lemmas.entrySet()) {
+                                    ResultSet resultFromLemma = selectFromDb(entry.getKey(), "lemma", "lemma");
+                                    // Проверка на отсутствие леммы в таблице lemma, а так же на разницу site_id
+                                    if (!resultFromLemma.next() ||
+                                            (resultFromLemma.next() && resultFromLemma.getInt("site_id_id") != indexingSite.getId())) {
+                                        lemmaEntity.setLemma(entry.getKey());
+                                        lemmaEntity.setFrequency(1);
+                                        lemmaEntity.setSiteId(indexingSite);
+                                        lemmaEntities.add(lemmaEntity);
+                                        // lemmaRepository.save(lemmaEntity);
+
+                                        indexEntity.setRankValue(entry.getValue());
+                                        indexEntity.setLemmaId(lemmaEntity);
+                                        indexEntity.setPageId(indexingPage);
+                                        indexEntities.add(indexEntity);
+
+                                        lemmaEntity = new LemmaEntity();
+                                        indexEntity = new IndexEntity();
+                                    }
+                                }
                             }
                         } catch (IOException e) {
                             indexingSite.setStatus(Status.FAILED);
@@ -213,6 +260,8 @@ public class SiteIndexer extends RecursiveAction {
 
 //                            indexingSite.setStatus(Status.FAILED);
 //                            System.out.println(e.getMessage());
+                        } catch (SQLException e) {
+                            throw new RuntimeException(e);
                         }
                     }
                 }
@@ -227,16 +276,26 @@ public class SiteIndexer extends RecursiveAction {
         private SiteEntity parseChildLinks(String siteUrl, SiteEntity indexingSite) {
             StringBuilder siteUrlWithHttps = new StringBuilder(siteUrl);
             siteUrlWithHttps.insert(4, 's');
-            Set<PageEntity> pages = new HashSet<>();
+            Set<PageEntity> pages = Collections.synchronizedSet(new HashSet<>());
+            List<LemmaEntity> lemmaEntities = new ArrayList<>();
+            List<IndexEntity> indexEntities = new ArrayList<>();
 
-            linkCrawling(pages, indexingSite, siteUrlWithHttps.toString());
+            pageLinksCrawling(pages, indexingSite, lemmaEntities, indexEntities, siteUrlWithHttps.toString());
 
-            indexingSite.setStatus(Status.INDEXED);
+            if (indexingSite.getStatus() != Status.FAILED) {
+                indexingSite.setStatus(Status.INDEXED);
+            }
 
             siteRepository.save(indexingSite);
 
             if (indexingSite.getLastError().isEmpty()) {
                 pages.forEach(pageRepository::save);
+
+                LemmasWriter forkWriterLemmas = new LemmasWriter(lemmaEntities, lemmaRepository);
+                IndexesWriter forkWriterIndexes = new IndexesWriter(indexEntities, indexRepository);
+                ForkJoinPool forkJoinPool = new ForkJoinPool();
+                forkJoinPool.invoke(forkWriterLemmas);
+                forkJoinPool.invoke(forkWriterIndexes);
             }
 
             System.out.println("END parsing " + siteUrl);
@@ -268,6 +327,15 @@ public class SiteIndexer extends RecursiveAction {
                 String sqlSelect = "SELECT * FROM " + tableName + " WHERE " + columnName + "='" + link + "'";
                 ResultSet rs = stmt.executeQuery(sqlSelect);
                 return rs.next();
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        private ResultSet selectFromDb(String data, String table, String column) {
+            String sqlSelect = "SELECT * FROM " + table + " WHERE " + column + "='" + data + "'";
+            try {
+                return stmt.executeQuery(sqlSelect);
             } catch (SQLException e) {
                 throw new RuntimeException(e);
             }

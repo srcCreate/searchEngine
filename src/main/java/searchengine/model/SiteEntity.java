@@ -20,6 +20,10 @@ public class SiteEntity {
     @Column(name = "pages")
     private Set<PageEntity> page;
 
+    @OneToMany(mappedBy = "siteId", cascade = CascadeType.MERGE, orphanRemoval = true)
+    @Column(name = "lemmas")
+    private Set<LemmaEntity> lemma;
+
     @Enumerated(EnumType.STRING)
     @Column(columnDefinition = "ENUM('INDEXING', 'INDEXED', 'FAILED')", nullable = false)
     private Status status;
