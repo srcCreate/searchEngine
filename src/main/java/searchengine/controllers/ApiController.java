@@ -4,10 +4,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import searchengine.dto.search.SearchingResponse;
 import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.model.PageRepository;
 import searchengine.services.IndexingPageService;
 import searchengine.services.IndexingService;
+import searchengine.services.SearchingService;
 import searchengine.services.StatisticsService;
 
 import java.util.Map;
@@ -28,6 +30,9 @@ public class ApiController {
     @Autowired
     private PageRepository pageRepository;
 
+    @Autowired
+    private SearchingService searchingService;
+
     @GetMapping("/statistics")
     public ResponseEntity<StatisticsResponse> statistics() {
         return ResponseEntity.ok(statisticsService.getStatistics());
@@ -43,8 +48,13 @@ public class ApiController {
         ResponseEntity.ok(indexingService.stopIndexing());
     }
 
-    @PostMapping(value = "/indexPage", consumes = {MediaType.APPLICATION_FORM_URLENCODED_VALUE})
-    public Map<String, String> indexPage(@RequestBody String url) {
+    @PostMapping(value = "/indexPage")
+    public Map<String, String> indexPage(@RequestParam String url) {
         return indexingPageService.indexPage(url);
+    }
+
+    @PostMapping(value = "/search")
+    public SearchingResponse search(@RequestParam String query) {
+        return searchingService.search(query);
     }
 }

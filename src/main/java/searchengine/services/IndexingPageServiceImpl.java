@@ -12,6 +12,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -124,6 +125,9 @@ public class IndexingPageServiceImpl implements IndexingPageService {
 
                             lemmaEntity = new LemmaEntity();
                             indexEntity = new IndexEntity();
+                        } else if (resultFromLemma.next() && resultFromLemma.getInt("site_id_id") == newSite.getId()) {
+                            int currentValue = resultFromLemma.getInt("frequency");
+                            updateFrequencyData(entry.getKey(), currentValue);
                         }
                     }
                 } catch (IOException e) {
@@ -191,6 +195,15 @@ public class IndexingPageServiceImpl implements IndexingPageService {
             statement = connect.createStatement();
             int count = statement.executeUpdate(sqlSelect);
             return count;
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void updateFrequencyData(String lemma, int currentValue) {
+        String sqlUpdate = "UPDATE lemma SET frequency='" + currentValue++ + "' WHERE lemma='" + lemma + "'";
+        try {
+            stmt.executeUpdate(sqlUpdate);
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }

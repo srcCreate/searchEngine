@@ -234,7 +234,6 @@ public class SiteIndexer extends RecursiveAction {
                                         lemmaEntity.setFrequency(1);
                                         lemmaEntity.setSiteId(indexingSite);
                                         lemmaEntities.add(lemmaEntity);
-                                        // lemmaRepository.save(lemmaEntity);
 
                                         indexEntity.setRankValue(entry.getValue());
                                         indexEntity.setLemmaId(lemmaEntity);
@@ -243,6 +242,9 @@ public class SiteIndexer extends RecursiveAction {
 
                                         lemmaEntity = new LemmaEntity();
                                         indexEntity = new IndexEntity();
+                                    } else if (resultFromLemma.next() && resultFromLemma.getInt("site_id_id") == indexingSite.getId()) {
+                                        int currentValue = resultFromLemma.getInt("frequency");
+                                        updateFrequencyData(entry.getKey(), currentValue);
                                     }
                                 }
                             }
@@ -336,6 +338,15 @@ public class SiteIndexer extends RecursiveAction {
             String sqlSelect = "SELECT * FROM " + table + " WHERE " + column + "='" + data + "'";
             try {
                 return stmt.executeQuery(sqlSelect);
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        private void updateFrequencyData(String lemma, int currentValue) {
+            String sqlUpdate = "UPDATE lemma SET frequency='" + currentValue++ + "' WHERE lemma='" + lemma + "'";
+            try {
+                stmt.executeUpdate(sqlUpdate);
             } catch (SQLException e) {
                 throw new RuntimeException(e);
             }

@@ -17,7 +17,7 @@ spring:
           CharSet: utf-8
           useUnicode: true
     hibernate:
-      ddl-auto: update
+      ddl-auto: create
     show-sql: true
 
 # example values
@@ -32,8 +32,8 @@ indexing-settings:
     - url: https://www.playback.ru
       name: PlayBack.Ru
 
-    - url: https://radiomv.ru/
-      name: Милицейская волна
+#    - url: https://radiomv.ru/
+#      name: Милицейская волна
 
 #    - url: https://volochek.life/
 #      name: Вышний Волочёк
