@@ -4,17 +4,14 @@ import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import searchengine.dto.db.DbCommands;
 import searchengine.dto.indexing.Lemmatizator;
 import searchengine.model.*;
 
 import java.io.IOException;
-import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
-import java.time.LocalDateTime;
 import java.util.*;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
@@ -29,32 +26,12 @@ public class IndexingPageServiceImpl implements IndexingPageService {
     @Autowired
     private IndexRepository indexRepository;
 
-    private PageEntity page = new PageEntity();
-
-    private Statement stmt;
+    private final DbCommands dbCommands = new DbCommands();
 
     private Lemmatizator lemmatizator;
 
-    {
-        try {
-            lemmatizator = Lemmatizator.getInstance();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
+    private Pattern siteLinkPattern = Pattern.compile("https?:\\/\\/[a-z-0-9.]+\\.[a-z]{2,3}");
 
-    private Pattern pattern = Pattern.compile("https?:\\/\\/[a-z-0-9.]+\\.[a-z]{2,3}");
-
-    // Подключение к БД с целью получения Statement stmt
-    {
-        try {
-            java.sql.Connection connect = DriverManager.
-                    getConnection("jdbc:mysql://localhost/search_engine", "root", "pass");
-            stmt = connect.createStatement();
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
 
     @Override
     public Map<String, String> indexPage(String url) {
@@ -65,19 +42,13 @@ public class IndexingPageServiceImpl implements IndexingPageService {
         }
 
         try {
-            if (!selectFromDb(url, "page", "path").next()) {
+            if (!dbCommands.selectAllFromDb("page", "path", url).next()) {
                 Connection.Response response;
 
-                try {
-                    ResultSet resultSet = searchUrlRootLike(url, "page", "path");
-                    int siteId = 0;
-                    if (resultSet.next()) {
-                        siteId = resultSet.getInt("site_id_id");
-                    } else {
-                        result.put("result", "false");
-                        result.put("error", "Данная страница находится за пределами сайтов, указанных в конфигурационном файле");
-                        return result;
-                    }
+                ResultSet resultSet = dbCommands.selectUrlLikeFromDB(siteLinkPattern, url, "page", "path");
+                int siteId;
+                if (resultSet.next()) {
+                    siteId = resultSet.getInt("site_id_id");
 
                     response = Jsoup.connect(url)
                             .userAgent("Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) " +
@@ -85,34 +56,45 @@ public class IndexingPageServiceImpl implements IndexingPageService {
                             .timeout(10000)
                             .execute();
 
+                    lemmatizator = Lemmatizator.getInstance();
+
                     PageEntity indexingPage = new PageEntity();
-                    resultSet = selectFromDb(String.valueOf(siteId), "site", "id");
                     SiteEntity newSite = new SiteEntity();
-                    if (resultSet.next()) {
-                        newSite.setId(resultSet.getInt("id"));
-                    }
+                    newSite.setId(siteId);
                     indexingPage.setSiteId(newSite);
                     indexingPage.setCode(response.statusCode());
                     indexingPage.setContent(response.parse().html());
                     indexingPage.setPath(url);
                     pageRepository.save(indexingPage);
 
-                    //Получаем код страницы
+                    //Получаем HTML страницы
                     String pageContent = indexingPage.getContent();
-                    //Убираем html разметку
+                    //Убираем HTML разметку
                     String pageText = Jsoup.parse(pageContent).text();
                     //Получаем леммы и их частоту
                     Map<String, Integer> lemmas = lemmatizator.collectLemmas(pageText);
 
-                    //Пишем полученные значения в таблицы lemma и index_table
                     LemmaEntity lemmaEntity = new LemmaEntity();
                     IndexEntity indexEntity = new IndexEntity();
 
                     for (var entry : lemmas.entrySet()) {
-                        ResultSet resultFromLemma = selectFromDb(entry.getKey(), "lemma", "lemma");
-                        // Проверка на отсутствие леммы в таблице lemma, а так же на разницу site_id
-                        if (!resultFromLemma.next() ||
-                                (resultFromLemma.next() && resultFromLemma.getInt("site_id_id") != newSite.getId())) {
+                        ResultSet resultFromLemma = dbCommands.selectAllFromDb("lemma", "lemma", entry.getKey());
+                        // Если лемма существует в таблице lemma, то увеличиваем значение frequency и создаем index
+                        if (resultFromLemma.next() && (resultFromLemma.getInt("site_id_id") == siteId)) {
+                            int currentValue = resultFromLemma.getInt("frequency");
+                            dbCommands.updateDbData("lemma", "frequency", String.valueOf(++currentValue),
+                                    "site_id_id", String.valueOf(siteId));
+
+                            indexEntity.setRankValue(entry.getValue());
+                            LemmaEntity newLemma = new LemmaEntity();
+                            newLemma.setId(resultFromLemma.getInt("id"));
+                            indexEntity.setLemmaId(newLemma);
+                            indexEntity.setPageId(indexingPage);
+                            indexRepository.save(indexEntity);
+
+                            indexEntity = new IndexEntity();
+                        } else {
+                            // Если лемма не существует в таблице lemma, то создаем lemma и index
                             lemmaEntity.setLemma(entry.getKey());
                             lemmaEntity.setFrequency(1);
                             lemmaEntity.setSiteId(newSite);
@@ -125,88 +107,49 @@ public class IndexingPageServiceImpl implements IndexingPageService {
 
                             lemmaEntity = new LemmaEntity();
                             indexEntity = new IndexEntity();
-                        } else if (resultFromLemma.next() && resultFromLemma.getInt("site_id_id") == newSite.getId()) {
-                            int currentValue = resultFromLemma.getInt("frequency");
-                            updateFrequencyData(entry.getKey(), currentValue);
                         }
                     }
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
+                } else {
+                    // Если адрес сайта отличается от переданной страницы, возвращаем ошибку
+                    result.put("result", "false");
+                    result.put("error", "Данная страница находится за пределами сайтов, указанных в конфигурационном файле");
+                    return result;
                 }
             } else {
-                // Получаем id страницы
-                ResultSet resultSet = selectFromDb(url, "page", "path");
+                // Если переданная страница имеется в таблице page
+                // получаем id страницы
+                ResultSet resultSet = dbCommands.selectAllFromDb("page", "path", url);
                 int pageId = 0;
                 if (resultSet.next()) {
                     pageId = resultSet.getInt("id");
                 }
                 // Получаем все записи из index_table по полученному id
-                resultSet = selectFromDb(String.valueOf(pageId), "index_table","page_id_id");
-                // Проходим по всем записям в таблицах и удаляем их
+                resultSet = dbCommands.selectAllFromDb("index_table", "page_id_id", String.valueOf(pageId));
+                // Проходим по всем записям в таблице index_table для причастных лемм
                 while (resultSet.next()) {
-                    int lemmaId = resultSet.getInt("lemma_id_id");
-                    System.out.println("Lemma ID = " + lemmaId);
-                    int indexId = resultSet.getInt("id");
-                    System.out.println("Index ID = " + indexId);
-                    deleteFromDb(String.valueOf(lemmaId), "lemma", "id");
-                    deleteFromDb(String.valueOf(indexId), "index_table", "id");
+                    String lemmaId = resultSet.getString("lemma_id_id");
+                    ResultSet resultSetFromLemma = dbCommands.selectAllFromDb("lemma", "id", lemmaId);
+                    if (resultSetFromLemma.next()) {
+                        int currentValue = resultSetFromLemma.getInt("frequency");
+                        // Если значение леммы больше 1, понижаем значение. Если 1 и менее -> удаляем запись из таблицы lemma
+                        if (currentValue > 1) {
+                            dbCommands.updateDbData("lemma", "frequency", String.valueOf(--currentValue),
+                                    "id", lemmaId);
+                        } else dbCommands.deleteFromDb("lemma", "id", lemmaId);
+                    }
                 }
-                deleteFromDb(String.valueOf(pageId), "page", "id");
+                // Удаляем записи из таблицы index_table
+                dbCommands.deleteFromDb("index_table","page_id_id", String.valueOf(pageId));
+
+                // Удаляем записи из таблицы page
+                dbCommands.deleteFromDb("page", "id", String.valueOf(pageId));
                 indexPage(url);
             }
-        } catch (SQLException ex) {
+        } catch (SQLException | IOException ex) {
             throw new RuntimeException(ex);
         }
         result.put("result", "true");
         return result;
-    }
-
-    private ResultSet selectFromDb(String data, String table, String column) {
-        String sqlSelect = "SELECT * FROM " + table + " WHERE " + column + "='" + data + "'";
-        try {
-            return stmt.executeQuery(sqlSelect);
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private ResultSet searchUrlRootLike(String url, String table, String column) {
-        Matcher matcher = pattern.matcher(url);
-        String rootUrl = "";
-        if (matcher.find()) {
-            rootUrl = matcher.group();
-        }
-        String sqlSelect = "SELECT * FROM " + table + " WHERE " + column + " LIKE '" + rootUrl + "%' LIMIT 1";
-        try {
-            return stmt.executeQuery(sqlSelect);
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private int deleteFromDb(String data, String table, String column) {
-        java.sql.Connection connect = null;
-        Statement statement;
-        String sqlSelect = "DELETE FROM " + table + " WHERE " + column + "='" + data + "'";
-
-        try {
-            connect = DriverManager.
-                    getConnection("jdbc:mysql://localhost/search_engine", "root", "pass");
-            statement = connect.createStatement();
-            int count = statement.executeUpdate(sqlSelect);
-            return count;
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void updateFrequencyData(String lemma, int currentValue) {
-        String sqlUpdate = "UPDATE lemma SET frequency='" + currentValue++ + "' WHERE lemma='" + lemma + "'";
-        try {
-            stmt.executeUpdate(sqlUpdate);
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
     }
 }
 

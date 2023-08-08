@@ -1,6 +1,7 @@
 package searchengine.services;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import searchengine.config.SitesList;
 import searchengine.dto.indexing.SiteIndexer;
@@ -15,8 +16,13 @@ public class IndexingServiceImpl implements IndexingService {
     private final SitesList sites;
 
     private final SiteRepository siteRepository;
-    private final PageRepository pageRepository;
+    @Autowired
+    private PageRepository pageRepository;
+
+    @Autowired
     private final LemmaRepository lemmaRepository;
+
+    @Autowired
     private final IndexRepository indexRepository;
 
     private volatile boolean isStopped = false;
