@@ -102,7 +102,7 @@ public class PageIndexer {
 
                                 if (lemmasCounter.containsKey(entry.getKey())) {
                                     String key = entry.getKey();
-                                    ResultSet rs = dbCommands.selectAllFromDb("lemma", "lemma", key);
+                                    ResultSet rs = dbCommands.selectFromDbWithParameters("lemma", "lemma", key);
                                     if (rs.next()) {
                                         int lemmaId = rs.getInt("id");
                                         lemmasCounter.put(key, lemmasCounter.get(entry.getKey()) + 1);

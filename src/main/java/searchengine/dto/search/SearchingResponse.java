@@ -5,5 +5,6 @@ import lombok.Data;
 @Data
 public class SearchingResponse {
     private boolean result;
-    private SearchingData searchingData;
+    private int count;
+    private SearchingData data;
 }

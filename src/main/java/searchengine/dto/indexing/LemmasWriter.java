@@ -31,7 +31,7 @@ public class LemmasWriter extends RecursiveAction {
         } else {
             targetCollection.forEach(lemmaEntity -> {
                 try {
-                    ResultSet rs = dbCommands.selectAllFromDb("lemma", "lemma", lemmaEntity.getLemma());
+                    ResultSet rs = dbCommands.selectFromDbWithParameters("lemma", "lemma", lemmaEntity.getLemma());
                     // Проверка на повторение леммы на других сайтах, увеличение frequency
                     if (rs.next() && (rs.getInt("site_id_id") != lemmaEntity.getSiteId().getId())) {
                         int currentFrequency = lemmaEntity.getFrequency();

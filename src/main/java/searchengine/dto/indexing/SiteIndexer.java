@@ -76,7 +76,22 @@ public class SiteIndexer extends RecursiveAction {
 
         if (!newSiteEntity.getLastError().isEmpty()) {
             dbCommands.updateDbData("site", "status", Status.FAILED.name(), "url", site.getUrl());
-            deleteDataFromDB(site.getUrl());
+            ResultSet resultSet = dbCommands.selectFromDbWithParameters("site", "url", site.getUrl());
+            try {
+                if (resultSet.next()) {
+                    String siteId = resultSet.getString("id");
+                    String pageId;
+                    ResultSet resultSetFromPage = dbCommands.selectFromDbWithParameters("page", "site_id_id", siteId);
+                    while (resultSetFromPage.next()) {
+                        pageId = resultSetFromPage.getString("id");
+                        dbCommands.deleteFromDb("index_table","page_id_id",pageId);
+                    }
+                    dbCommands.deleteFromDb("page", "site_id_id", siteId);
+                    dbCommands.deleteFromDb("lemma","site_id_id", siteId);
+                }
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
         } else {
             dbCommands.updateDbData("site", "status", Status.INDEXED.name(), "url", site.getUrl());
         }
@@ -85,13 +100,13 @@ public class SiteIndexer extends RecursiveAction {
     }
 
     private void deleteDataFromDB(String url) {
-        ResultSet resultSet = dbCommands.selectAllFromDb("site", "url", url);
+        ResultSet resultSet = dbCommands.selectFromDbWithParameters("site", "url", url);
         try {
             if (resultSet.next()) {
                 dbCommands.deleteFromDb("site", "url", url);
                 String siteId = resultSet.getString("id");
                 String pageId;
-                ResultSet resultSetFromPage = dbCommands.selectAllFromDb("page", "site_id_id", siteId);
+                ResultSet resultSetFromPage = dbCommands.selectFromDbWithParameters("page", "site_id_id", siteId);
                 while (resultSetFromPage.next()) {
                     pageId = resultSetFromPage.getString("id");
                     dbCommands.deleteFromDb("index_table","page_id_id",pageId);

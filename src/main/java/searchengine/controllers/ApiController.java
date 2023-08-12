@@ -53,7 +53,7 @@ public class ApiController {
         return indexingPageService.indexPage(url);
     }
 
-    @PostMapping(value = "/search")
+    @GetMapping(value = "/search")
     public SearchingResponse search(@RequestParam String query) {
         return searchingService.search(query);
     }

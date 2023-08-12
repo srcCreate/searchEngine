@@ -17,7 +17,7 @@ spring:
           CharSet: utf-8
           useUnicode: true
     hibernate:
-      ddl-auto: create
+      ddl-auto: update
     show-sql: true
 
 # example values
@@ -32,7 +32,7 @@ indexing-settings:
     - url: https://www.playback.ru
       name: PlayBack.Ru
 
-    - url: https://radiomv.ru/
+    - url: https://radiomv.ru
       name: Милицейская волна
 
 #    - url: https://volochek.life/
@@ -42,7 +42,7 @@ indexing-settings:
 #    - url: https://dimonvideo.ru/
 #      name: ДимонВидео
 
-    - url: https://et-cetera.ru/mobile/
+    - url: https://et-cetera.ru/mobile
       name: Театр Et Cetera
 
 #       Проблемы с сертификатами
