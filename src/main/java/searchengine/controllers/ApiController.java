@@ -1,7 +1,6 @@
 package searchengine.controllers;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import searchengine.dto.search.SearchingResponse;
@@ -54,7 +53,7 @@ public class ApiController {
     }
 
     @GetMapping(value = "/search")
-    public SearchingResponse search(@RequestParam String query) {
-        return searchingService.search(query);
+    public SearchingResponse search(@RequestParam String query, String site) {
+        return searchingService.search(query, site);
     }
 }

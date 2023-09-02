@@ -85,7 +85,7 @@ public class StatisticsServiceImpl implements StatisticsService {
                 if (resultSetFromLemmaTable.next()) {
                     int lemmasCount = resultSetFromLemmaTable.getInt("COUNT(*)");
                     totalLemmas += lemmasCount;
-                    item.setPages(lemmasCount);
+                    item.setLemmas(lemmasCount);
                 }
             } catch (SQLException e) {
                 throw new RuntimeException(e);

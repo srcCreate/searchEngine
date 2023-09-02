@@ -69,9 +69,7 @@ public class SiteIndexer extends RecursiveAction {
         newSiteEntity.setUrl(site.getUrl());
         siteRepository.save(newSiteEntity);
 
-        Map<String, Integer> lemmasCounter = new HashMap<>();
-
-        PageIndexer pageIndexer = new PageIndexer(newSiteEntity, pageRepository, lemmasCounter, lemmaRepository, indexRepository);
+        PageIndexer pageIndexer = new PageIndexer(newSiteEntity, pageRepository, lemmaRepository, indexRepository);
         pageIndexer.parsePages();
 
         if (!newSiteEntity.getLastError().isEmpty()) {

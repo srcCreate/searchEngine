@@ -25,13 +25,12 @@ public class PageIndexer {
 
     private Lemmatizator lemmatizator;
 
-    private Map<String, Integer> lemmasCounter;
+    private Map<String, Integer> lemmasCounter = new HashMap<>();
 
-    public PageIndexer(SiteEntity site, PageRepository pageRepository, Map<String, Integer> lemmasCounter,
-                       LemmaRepository lemmaRepository, IndexRepository indexRepository) {
+    public PageIndexer(SiteEntity site, PageRepository pageRepository, LemmaRepository lemmaRepository,
+                       IndexRepository indexRepository) {
         this.site = site;
         this.pageRepository = pageRepository;
-        this.lemmasCounter = lemmasCounter;
         this.lemmaRepository = lemmaRepository;
         this.indexRepository = indexRepository;
     }
@@ -49,7 +48,7 @@ public class PageIndexer {
         Pattern pattern = Pattern.compile("\\.pdf$");
         Document document;
 
-        // Сет исключающий дублирования ссылок
+        // Сет исключающий дублирование ссылок
         Set<String> links = new HashSet<>();
 
         try {
@@ -99,10 +98,11 @@ public class PageIndexer {
                             IndexEntity indexEntity = new IndexEntity();
 
                             for (var entry : lemmas.entrySet()) {
-
                                 if (lemmasCounter.containsKey(entry.getKey())) {
                                     String key = entry.getKey();
-                                    ResultSet rs = dbCommands.selectFromDbWithParameters("lemma", "lemma", key);
+                                    ResultSet rs = dbCommands.selectFromDbWithTwoParameters("lemma",
+                                            "lemma", "site_id_id", key,
+                                            String.valueOf(site.getId()));
                                     if (rs.next()) {
                                         int lemmaId = rs.getInt("id");
                                         lemmasCounter.put(key, lemmasCounter.get(entry.getKey()) + 1);

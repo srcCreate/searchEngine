@@ -4,6 +4,7 @@ import java.sql.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+// Класс для взаимодействия с БД
 public class DbCommands {
     private final Connection connection;
 
@@ -27,6 +28,17 @@ public class DbCommands {
 
     public ResultSet selectFromDbWithParameters(String tableName, String columnName, String data) {
         String sqlSelect = "SELECT * FROM " + tableName + " WHERE " + columnName + "='" + data + "'";
+        try {
+            Statement stmt = connection.createStatement();
+            return stmt.executeQuery(sqlSelect);
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public ResultSet selectFromDbWithTwoParameters(String tableName, String columnName1, String columnName2,
+                                                   String data1, String data2) {
+        String sqlSelect = "SELECT * FROM " + tableName + " WHERE " + columnName1 + "='" + data1 + "' and " + columnName2 + "='" + data2 + "'";
         try {
             Statement stmt = connection.createStatement();
             return stmt.executeQuery(sqlSelect);
