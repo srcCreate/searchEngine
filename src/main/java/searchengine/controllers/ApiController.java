@@ -37,12 +37,12 @@ public class ApiController {
         return ResponseEntity.ok(statisticsService.getStatistics());
     }
 
-    @GetMapping("/startindexing")
+    @GetMapping("/startIndexing")
     public void startIndexing() {
         ResponseEntity.ok(indexingService.startIndexing());
     }
 
-    @GetMapping("/stopindexing")
+    @GetMapping("/stopIndexing")
     public void stopIndexing() {
         ResponseEntity.ok(indexingService.stopIndexing());
     }

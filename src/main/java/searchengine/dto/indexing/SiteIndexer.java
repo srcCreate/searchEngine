@@ -34,13 +34,14 @@ public class SiteIndexer extends RecursiveAction {
 
     @Override
     protected void compute() {
-        //Обходим список сайтов, удаляя пройденные создаем и разветвляем на форки SiteIndexerы
+        //Обходим список сайтов, удаляя пройденные создаем и разветвляем на форки SiteIndexers
         Iterator<Site> iterator = sites.iterator();
 
         while (iterator.hasNext()) {
             Site currentSite = iterator.next();
             iterator.remove();
-            SiteIndexer newIndexer = new SiteIndexer(sites, siteRepository, pageRepository, lemmaRepository, indexRepository, isStoped);
+            SiteIndexer newIndexer = new SiteIndexer(sites, siteRepository, pageRepository, lemmaRepository,
+                    indexRepository, isStoped);
             siteIndexerList.add(newIndexer);
             newIndexer.fork();
             newIndexer.siteEntityCreator(currentSite);
@@ -93,7 +94,6 @@ public class SiteIndexer extends RecursiveAction {
         } else {
             dbCommands.updateDbData("site", "status", Status.INDEXED.name(), "url", site.getUrl());
         }
-
         System.out.println("Stop " + Thread.currentThread().getName() + "\n");
     }
 

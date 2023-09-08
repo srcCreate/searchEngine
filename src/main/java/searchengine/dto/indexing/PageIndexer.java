@@ -86,57 +86,16 @@ public class PageIndexer {
                             indexingPage.setCode(response.statusCode());
                             pageRepository.save(indexingPage);
 
-                            //Получаем код страницы
-                            String pageContent = indexingPage.getContent();
-                            //Убираем html разметку
-                            String pageText = Jsoup.parse(pageContent).text();
+                            //Получаем код страницы и убираем html разметку
+                            String pageText = Jsoup.parse(indexingPage.getContent()).text();
                             //Получаем леммы и их частоту
                             Map<String, Integer> lemmas = lemmatizator.collectLemmas(pageText);
 
-                            //Пишем полученные значения в таблицы lemma и index_table
                             LemmaEntity lemmaEntity = new LemmaEntity();
                             IndexEntity indexEntity = new IndexEntity();
 
-                            for (var entry : lemmas.entrySet()) {
-                                if (lemmasCounter.containsKey(entry.getKey())) {
-                                    String key = entry.getKey();
-                                    ResultSet rs = dbCommands.selectFromDbWithTwoParameters("lemma",
-                                            "lemma", "site_id_id", key,
-                                            String.valueOf(site.getId()));
-                                    if (rs.next()) {
-                                        int lemmaId = rs.getInt("id");
-                                        lemmasCounter.put(key, lemmasCounter.get(entry.getKey()) + 1);
-                                        dbCommands.updateDbData("lemma","frequency",
-                                                String.valueOf(lemmasCounter.get(key)), "id",
-                                                String.valueOf(lemmaId));
-
-                                        LemmaEntity newLemma = new LemmaEntity();
-                                        newLemma.setId(lemmaId);
-
-                                        indexEntity.setRankValue(entry.getValue());
-                                        indexEntity.setLemmaId(newLemma);
-                                        indexEntity.setPageId(indexingPage);
-                                        indexRepository.save(indexEntity);
-
-                                        lemmaEntity = new LemmaEntity();
-                                        indexEntity = new IndexEntity();
-                                    }
-                                } else {
-                                    lemmaEntity.setLemma(entry.getKey());
-                                    lemmaEntity.setFrequency(1);
-                                    lemmaEntity.setSiteId(site);
-                                    lemmasCounter.put(entry.getKey(), lemmaEntity.getFrequency());
-                                    lemmaRepository.save(lemmaEntity);
-
-                                    indexEntity.setRankValue(entry.getValue());
-                                    indexEntity.setLemmaId(lemmaEntity);
-                                    indexEntity.setPageId(indexingPage);
-                                    indexRepository.save(indexEntity);
-
-                                    lemmaEntity = new LemmaEntity();
-                                    indexEntity = new IndexEntity();
-                                }
-                            }
+                            //Пишем полученные значения в таблицы lemma и index_table
+                            writeLemmas(lemmas, lemmaEntity, indexEntity, indexingPage);
                         }
                     } catch (IOException | SQLException e) {
                         site.setStatus(Status.FAILED);
@@ -167,5 +126,49 @@ public class PageIndexer {
             link = link.substring(0, lastChar);
         }
         return link;
+    }
+
+    private void writeLemmas(Map<String, Integer> lemmas, LemmaEntity lemmaEntity,
+                             IndexEntity indexEntity, PageEntity indexingPage) throws SQLException {
+        for (var entry : lemmas.entrySet()) {
+            if (lemmasCounter.containsKey(entry.getKey())) {
+                String key = entry.getKey();
+                ResultSet rs = dbCommands.selectFromDbWithTwoParameters("lemma",
+                        "lemma", "site_id_id", key,
+                        String.valueOf(site.getId()));
+                if (rs.next()) {
+                    int lemmaId = rs.getInt("id");
+                    lemmasCounter.put(key, lemmasCounter.get(entry.getKey()) + 1);
+                    dbCommands.updateDbData("lemma","frequency",
+                            String.valueOf(lemmasCounter.get(key)), "id",
+                            String.valueOf(lemmaId));
+
+                    LemmaEntity newLemma = new LemmaEntity();
+                    newLemma.setId(lemmaId);
+
+                    indexEntity.setRankValue(entry.getValue());
+                    indexEntity.setLemmaId(newLemma);
+                    indexEntity.setPageId(indexingPage);
+                    indexRepository.save(indexEntity);
+
+                    lemmaEntity = new LemmaEntity();
+                    indexEntity = new IndexEntity();
+                }
+            } else {
+                lemmaEntity.setLemma(entry.getKey());
+                lemmaEntity.setFrequency(1);
+                lemmaEntity.setSiteId(site);
+                lemmasCounter.put(entry.getKey(), lemmaEntity.getFrequency());
+                lemmaRepository.save(lemmaEntity);
+
+                indexEntity.setRankValue(entry.getValue());
+                indexEntity.setLemmaId(lemmaEntity);
+                indexEntity.setPageId(indexingPage);
+                indexRepository.save(indexEntity);
+
+                lemmaEntity = new LemmaEntity();
+                indexEntity = new IndexEntity();
+            }
+        }
     }
 }

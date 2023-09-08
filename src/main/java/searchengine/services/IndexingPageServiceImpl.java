@@ -67,48 +67,16 @@ public class IndexingPageServiceImpl implements IndexingPageService {
                     indexingPage.setPath(url);
                     pageRepository.save(indexingPage);
 
-                    //Получаем HTML страницы
-                    String pageContent = indexingPage.getContent();
-                    //Убираем HTML разметку
-                    String pageText = Jsoup.parse(pageContent).text();
+                    //Получаем HTML страницы и убираем разметку
+                    String pageText = Jsoup.parse(indexingPage.getContent()).text();
                     //Получаем леммы и их частоту
                     Map<String, Integer> lemmas = lemmatizator.collectLemmas(pageText);
 
                     LemmaEntity lemmaEntity = new LemmaEntity();
                     IndexEntity indexEntity = new IndexEntity();
 
-                    for (var entry : lemmas.entrySet()) {
-                        ResultSet resultFromLemma = dbCommands.selectFromDbWithParameters("lemma", "lemma", entry.getKey());
-                        // Если лемма существует в таблице lemma, то увеличиваем значение frequency и создаем index
-                        if (resultFromLemma.next() && (resultFromLemma.getInt("site_id_id") == siteId)) {
-                            int currentValue = resultFromLemma.getInt("frequency");
-                            dbCommands.updateDbData("lemma", "frequency", String.valueOf(currentValue++),
-                                    "site_id_id", String.valueOf(siteId));
-
-                            indexEntity.setRankValue(entry.getValue());
-                            LemmaEntity newLemma = new LemmaEntity();
-                            newLemma.setId(resultFromLemma.getInt("id"));
-                            indexEntity.setLemmaId(newLemma);
-                            indexEntity.setPageId(indexingPage);
-                            indexRepository.save(indexEntity);
-
-                            indexEntity = new IndexEntity();
-                        } else {
-                            // Если лемма не существует в таблице lemma, то создаем lemma и index
-                            lemmaEntity.setLemma(entry.getKey());
-                            lemmaEntity.setFrequency(1);
-                            lemmaEntity.setSiteId(newSite);
-                            lemmaRepository.save(lemmaEntity);
-
-                            indexEntity.setRankValue(entry.getValue());
-                            indexEntity.setLemmaId(lemmaEntity);
-                            indexEntity.setPageId(indexingPage);
-                            indexRepository.save(indexEntity);
-
-                            lemmaEntity = new LemmaEntity();
-                            indexEntity = new IndexEntity();
-                        }
-                    }
+                    //Пишем полученные значения в таблицы lemma и index_table
+                    writeLemmas(lemmas, lemmaEntity, indexEntity, indexingPage, siteId, newSite);
                 } else {
                     // Если адрес сайта отличается от переданной страницы, возвращаем ошибку
                     result.put("result", "false");
@@ -150,6 +118,44 @@ public class IndexingPageServiceImpl implements IndexingPageService {
         }
         result.put("result", "true");
         return result;
+    }
+
+    private void writeLemmas(Map<String, Integer> lemmas, LemmaEntity lemmaEntity,
+                             IndexEntity indexEntity, PageEntity indexingPage, int siteId,
+                             SiteEntity newSite) throws SQLException {
+
+        for (var entry : lemmas.entrySet()) {
+            ResultSet resultFromLemma = dbCommands.selectFromDbWithParameters("lemma", "lemma", entry.getKey());
+            // Если лемма существует в таблице lemma, то увеличиваем значение frequency и создаем index
+            if (resultFromLemma.next() && (resultFromLemma.getInt("site_id_id") == siteId)) {
+                int currentValue = resultFromLemma.getInt("frequency");
+                dbCommands.updateDbData("lemma", "frequency", String.valueOf(currentValue++),
+                        "site_id_id", String.valueOf(siteId));
+
+                indexEntity.setRankValue(entry.getValue());
+                LemmaEntity newLemma = new LemmaEntity();
+                newLemma.setId(resultFromLemma.getInt("id"));
+                indexEntity.setLemmaId(newLemma);
+                indexEntity.setPageId(indexingPage);
+                indexRepository.save(indexEntity);
+
+                indexEntity = new IndexEntity();
+            } else {
+                // Если лемма не существует в таблице lemma, то создаем lemma и index
+                lemmaEntity.setLemma(entry.getKey());
+                lemmaEntity.setFrequency(1);
+                lemmaEntity.setSiteId(newSite);
+                lemmaRepository.save(lemmaEntity);
+
+                indexEntity.setRankValue(entry.getValue());
+                indexEntity.setLemmaId(lemmaEntity);
+                indexEntity.setPageId(indexingPage);
+                indexRepository.save(indexEntity);
+
+                lemmaEntity = new LemmaEntity();
+                indexEntity = new IndexEntity();
+            }
+        }
     }
 }
 

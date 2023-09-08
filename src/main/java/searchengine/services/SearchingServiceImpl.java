@@ -17,6 +17,7 @@ import java.sql.SQLException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Service
 public class SearchingServiceImpl implements SearchingService {
@@ -171,16 +172,16 @@ public class SearchingServiceImpl implements SearchingService {
                     data.setSiteName(siteName);
                     String[] urlArray = path.split(url);
 
-                    if (urlArray.length == 1) {
-                        data.setUri(urlArray[0]);
-                    } else {
+                    if (urlArray.length > 0) {
                         data.setUri(urlArray[1]);
+                    } else {
+                        data.setUri("");
                     }
                 }
 
                 // Получаем релевантность
-                Map<Integer, Float> relRelevance = calculateRelevance(sortedLemmas, totalIndexEntities);
-                data.setRelevance(relRelevance.get(totalIndexEntities.get(i).getPageId().getId()));
+                Map<Integer, Float> relevanceValues = calculateRelevance(sortedLemmas, totalIndexEntities);
+                data.setRelevance(relevanceValues.get(totalIndexEntities.get(i).getPageId().getId()));
 
                 // Получаем сниппеты
                 List<String> snippetList = new ArrayList<>();
@@ -203,45 +204,8 @@ public class SearchingServiceImpl implements SearchingService {
 
                     // Формируем строку для поиска по тексту страницы, с послудющим уменьшением
                     // используемых лемм, от общего количества к одной лемме
-                    for (int j = queryArray.length - 1; j >= 0; j--) {
-                        StringBuilder lemmasCollector = new StringBuilder();
-                        for (int k = 0; k < j + 1; k++) {
-                            lemmasCollector.append(queryArray[k]).append(" ");
-                        }
+                    createSnippet(queryArray, pageData, snippetList);
 
-                        Set<String> sentenceMatches = new HashSet<>();
-                        // Поиск предложений содержащих искомые леммы
-                        String stringForPattern = getPatternForLemmas(lemmasCollector.toString());
-                        Pattern pattern = Pattern.compile(stringForPattern);
-                        Matcher matcher = pattern.matcher(pageData);
-                        while (matcher.find()) {
-                            String sentence = matcher.group();
-                            for (String lemma : queryArray) {
-                                List<String> lemmaVariables = getMatches(lemma, sentence);
-                                if (!lemmaVariables.isEmpty()) {
-                                    sentenceMatches.add(sentence);
-                                }
-                            }
-                        }
-
-                        // Добавление тега <b> вокруг искомых лемм
-                        for (String sentence : sentenceMatches) {
-                            for (String lemma : queryArray) {
-                                List<String> lemmaVariables = getMatches(lemma, sentence);
-                                if (!lemmaVariables.isEmpty()) {
-                                    StringBuilder wordForEquals = new StringBuilder();
-                                    for (String currentLemma : lemmaVariables) {
-                                        if (wordForEquals.toString().contains(currentLemma)) {
-                                            continue;
-                                        }
-                                        sentence = sentence.replace(currentLemma, "<b>" + currentLemma + "</b>");
-                                        wordForEquals.append(currentLemma);
-                                    }
-                                }
-                            }
-                            snippetList.add(sentence);
-                        }
-                    }
                 } catch (SQLException e) {
                     throw new RuntimeException(e);
                 }
@@ -260,10 +224,6 @@ public class SearchingServiceImpl implements SearchingService {
         searchingDataList = searchingDataListBeforeSort.stream().sorted(Comparator.
                 comparing(SearchingData::getRelevance).
                 reversed()).toList();
-
-        if (searchingDataList.size() > 5) {
-            searchingDataList = searchingDataList.subList(0, 5);
-        }
 
         response.setResult(true);
         response.setCount(totalPagesCount);
@@ -357,13 +317,108 @@ public class SearchingServiceImpl implements SearchingService {
 
     private List<String> getMatches(String findText, String text) {
         List<String> matches = new ArrayList<>();
-        Pattern pattern = Pattern.compile(getPatternForContainsIgnoreCase(findText));
-        Matcher matcher = pattern.matcher(text);
+        Pattern patternIgnoreCase = Pattern.compile(getPatternForContainsIgnoreCase(findText));
+        Matcher matcher = patternIgnoreCase.matcher(text);
 
         while (matcher.find()) {
             matches.add(matcher.group());
         }
         return matches;
+    }
+
+    private void createSnippet(String[] queryArray, String pageData, List<String> snippetList) {
+        for (int j = queryArray.length - 1; j >= 0; j--) {
+            StringBuilder lemmasCollector = new StringBuilder();
+            for (int k = 0; k < j + 1; k++) {
+                lemmasCollector.append(queryArray[k]).append(" ");
+            }
+
+            Set<String> sentenceMatches = new HashSet<>();
+
+            String patternForLemmas = getPatternForLemmas(lemmasCollector.toString());
+            Pattern pattern = Pattern.compile(patternForLemmas);
+            Matcher matcher = pattern.matcher(pageData);
+            while (matcher.find()) {
+                String sentence = matcher.group();
+                for (String lemma : queryArray) {
+                    List<String> lemmaVariables = getMatches(lemma, sentence);
+                    if (!lemmaVariables.isEmpty()) {
+                        sentenceMatches.add(sentence);
+                    }
+                }
+            }
+
+            // Добавление тега <b> вокруг искомых лемм
+            for (String sentence : sentenceMatches) {
+                for (String lemma : queryArray) {
+                    List<String> lemmaVariables = getMatches(lemma, sentence);
+                    if (!lemmaVariables.isEmpty()) {
+                        StringBuilder wordForEquals = new StringBuilder();
+                        for (String currentLemma : lemmaVariables) {
+                            if (wordForEquals.toString().contains(currentLemma)) {
+                                continue;
+                            }
+                            sentence = trimSnippetSentence(sentence, currentLemma);
+                            sentence = sentence.replace(currentLemma, "<b>" + currentLemma + "</b>");
+                            wordForEquals.append(currentLemma);
+                        }
+                    }
+                }
+                snippetList.add(sentence);
+            }
+        }
+    }
+
+    private String trimSnippetSentence(String sentence, String lemma) {
+
+        StringBuilder result = new StringBuilder();
+
+        List<String> sentencePart = List.of(sentence.split(lemma));
+        for (int i = 0; i < sentencePart.size(); i++) {
+            if ((i % 2) == 0 && sentencePart.get(i).length() > 120) {
+                String currentPart = sentencePart.get(i);
+                if (i > 0) {
+                    result.append(currentPart, 0, 120);
+                } else {
+                    result.append("...");
+                    result.append(currentPart, currentPart.length() - 120, currentPart.length());
+                }
+                if (i != sentencePart.size() - 1) {
+                    result.append(lemma);
+                }
+            }
+
+            if ((i % 2) == 0 && sentencePart.get(i).length() < 120) {
+                String currentPart = sentencePart.get(i);
+                result.append(currentPart, 0, currentPart.length());
+                if (i != sentencePart.size() - 1) {
+                    result.append(lemma);
+                }
+            }
+
+            if ((i % 2) != 0 && sentencePart.get(i).length() > 120) {
+                String currentPart = sentencePart.get(i);
+                result.append(currentPart, 0, 120);
+                result.append("...");
+                if (i != sentencePart.size() - 1) {
+                    result.append(lemma);
+                }
+            }
+
+            if ((i % 2) != 0 && sentencePart.get(i).length() < 120) {
+                String currentPart = sentencePart.get(i);
+                result.append(currentPart, 0, currentPart.length());
+                if (i != sentencePart.size() - 1) {
+                    result.append(lemma);
+                }
+            }
+        }
+
+        if (result.length() > 300) {
+            result = new StringBuilder(result.substring(0, 249));
+        }
+
+        return result.toString();
     }
 }
 
