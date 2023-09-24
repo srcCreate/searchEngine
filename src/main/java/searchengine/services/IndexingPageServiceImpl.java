@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
@@ -30,25 +31,36 @@ public class IndexingPageServiceImpl implements IndexingPageService {
 
     private Lemmatizator lemmatizator;
 
-    private Pattern siteLinkPattern = Pattern.compile("https?:\\/\\/[a-z-0-9.]+\\.[a-z]{2,3}");
-
+    private final Pattern siteLinkPattern = Pattern.compile("https?:\\/\\/[a-z-0-9.]+\\.[a-z]{2,3}");
 
     @Override
     public Map<String, String> indexPage(String url) {
+        long start = System.currentTimeMillis();
+        System.out.println("Start indexing new page: " + url);
         Map<String, String> result = new HashMap<>();
         if (url.isEmpty()) {
             result.put("result", "false");
+            System.out.println("Индексация страницы завершена за " + (System.currentTimeMillis() - start) + " миллисекунд");
             return result;
         }
 
-        try {
-            if (!dbCommands.selectFromDbWithParameters("page", "path", url).next()) {
+        try (java.sql.Connection connection = dbCommands.getNewConnection()) {
+            String sqlSelect = "SELECT * FROM page WHERE path='" + url + "'";
+            ResultSet rs = connection.createStatement().executeQuery(sqlSelect);
+            if (!rs.next()) {
                 Connection.Response response;
 
-                ResultSet resultSet = dbCommands.selectUrlLikeFromDB(siteLinkPattern, url, "page", "path");
+                Matcher matcher = siteLinkPattern.matcher(url);
+                String rootUrl = "";
+                if (matcher.find()) {
+                    rootUrl = matcher.group();
+                }
+
+                String selectLike = "SELECT * FROM page WHERE path LIKE '" + rootUrl + "%' LIMIT 1";
+                ResultSet pageRs = connection.createStatement().executeQuery(selectLike);
                 int siteId;
-                if (resultSet.next()) {
-                    siteId = resultSet.getInt("site_id_id");
+                if (pageRs.next()) {
+                    siteId = pageRs.getInt("site_id_id");
 
                     response = Jsoup.connect(url)
                             .userAgent("Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) " +
@@ -76,72 +88,71 @@ public class IndexingPageServiceImpl implements IndexingPageService {
                     IndexEntity indexEntity = new IndexEntity();
 
                     //Пишем полученные значения в таблицы lemma и index_table
-                    writeLemmas(lemmas, lemmaEntity, indexEntity, indexingPage, siteId, newSite);
+                    writeLemmas(connection, lemmas, lemmaEntity, indexEntity, indexingPage, siteId, newSite);
                 } else {
                     // Если адрес сайта отличается от переданной страницы, возвращаем ошибку
                     result.put("result", "false");
                     result.put("error", "Данная страница находится за пределами сайтов, указанных в конфигурационном файле");
+                    System.out.println("Индексация страницы завершена за " + (System.currentTimeMillis() - start) + " миллисекунд");
                     return result;
                 }
             } else {
                 // Если переданная страница имеется в таблице page
                 // получаем id страницы
-                ResultSet resultSet = dbCommands.selectFromDbWithParameters("page", "path", url);
-                int pageId = 0;
-                if (resultSet.next()) {
-                    pageId = resultSet.getInt("id");
-                }
+                int pageId = rs.getInt("id");
+
                 // Получаем все записи из index_table по полученному id
-                resultSet = dbCommands.selectFromDbWithParameters("index_table", "page_id_id", String.valueOf(pageId));
-                // Проходим по всем записям в таблице index_table для причастных лемм
-                while (resultSet.next()) {
-                    String lemmaId = resultSet.getString("lemma_id_id");
-                    ResultSet resultSetFromLemma = dbCommands.selectFromDbWithParameters("lemma", "id", lemmaId);
-                    if (resultSetFromLemma.next()) {
-                        int currentValue = resultSetFromLemma.getInt("frequency");
+                String indexSelect = "SELECT * FROM index_table WHERE page_id_id ='" + pageId + "'";
+                ResultSet indexRs = connection.createStatement().executeQuery(indexSelect);
+                while (indexRs.next()) {
+                    String lemmaId = indexRs.getString("lemma_id_id");
+                    String lemmaSelect = "SELECT * FROM lemma WHERE id ='" + lemmaId + "'";
+                    ResultSet lemmaRs = connection.createStatement().executeQuery(lemmaSelect);
+                    if (lemmaRs.next()) {
+                        int currentValue = lemmaRs.getInt("frequency");
                         // Если значение леммы больше 1, понижаем значение. Если 1 и менее -> удаляем запись из таблицы lemma
                         if (currentValue > 1) {
-                            dbCommands.updateDbData("lemma", "frequency", String.valueOf(currentValue--),
+                            dbCommands.updateDbData("lemma", "frequency", String.valueOf(--currentValue),
                                     "id", lemmaId);
-                        } else dbCommands.deleteFromDb("lemma", "id", lemmaId);
+                        } else {
+                            dbCommands.deleteFromDb("lemma", "id", lemmaId);
+                        }
                     }
                 }
                 // Удаляем записи из таблицы index_table
-                dbCommands.deleteFromDb("index_table","page_id_id", String.valueOf(pageId));
+                dbCommands.deleteFromDb("index_table", "page_id_id", String.valueOf(pageId));
 
                 // Удаляем записи из таблицы page
                 dbCommands.deleteFromDb("page", "id", String.valueOf(pageId));
                 indexPage(url);
             }
-        } catch (SQLException | IOException ex) {
-            throw new RuntimeException(ex);
+            result.put("result", "true");
+            System.out.println("Индексация страницы завершена за " + (System.currentTimeMillis() - start) + " миллисекунд");
+            return result;
+        } catch (SQLException | IOException e) {
+            throw new RuntimeException(e);
         }
-        result.put("result", "true");
-        return result;
     }
 
-    private void writeLemmas(Map<String, Integer> lemmas, LemmaEntity lemmaEntity,
+    private void writeLemmas(java.sql.Connection connection, Map<String, Integer> lemmas, LemmaEntity lemmaEntity,
                              IndexEntity indexEntity, PageEntity indexingPage, int siteId,
                              SiteEntity newSite) throws SQLException {
 
         for (var entry : lemmas.entrySet()) {
-            ResultSet resultFromLemma = dbCommands.selectFromDbWithParameters("lemma", "lemma", entry.getKey());
-            // Если лемма существует в таблице lemma, то увеличиваем значение frequency и создаем index
-            if (resultFromLemma.next() && (resultFromLemma.getInt("site_id_id") == siteId)) {
-                int currentValue = resultFromLemma.getInt("frequency");
-                dbCommands.updateDbData("lemma", "frequency", String.valueOf(currentValue++),
-                        "site_id_id", String.valueOf(siteId));
-
+            String sqlSelect = "SELECT * FROM lemma WHERE lemma ='" + entry.getKey() + "' AND site_id_id = '" + siteId + "'";
+            ResultSet rs = connection.createStatement().executeQuery(sqlSelect);
+            if (rs.next()) {
+                int currentValue = rs.getInt("frequency");
+                String updateQuery = "UPDATE lemma SET frequency='" + ++currentValue + "' WHERE site_id_id='" +
+                        siteId + "' AND lemma = '" + entry.getKey() + "'";
+                connection.createStatement().executeUpdate(updateQuery);
                 indexEntity.setRankValue(entry.getValue());
                 LemmaEntity newLemma = new LemmaEntity();
-                newLemma.setId(resultFromLemma.getInt("id"));
+                newLemma.setId(rs.getInt("id"));
                 indexEntity.setLemmaId(newLemma);
                 indexEntity.setPageId(indexingPage);
                 indexRepository.save(indexEntity);
-
-                indexEntity = new IndexEntity();
             } else {
-                // Если лемма не существует в таблице lemma, то создаем lemma и index
                 lemmaEntity.setLemma(entry.getKey());
                 lemmaEntity.setFrequency(1);
                 lemmaEntity.setSiteId(newSite);
@@ -153,9 +164,9 @@ public class IndexingPageServiceImpl implements IndexingPageService {
                 indexRepository.save(indexEntity);
 
                 lemmaEntity = new LemmaEntity();
-                indexEntity = new IndexEntity();
             }
+            indexEntity = new IndexEntity();
         }
     }
-}
 
+}

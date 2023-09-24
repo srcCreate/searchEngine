@@ -11,7 +11,6 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQL5Dialect
-#        dialect: org.hibernate.dialect.MySQL8Dialect
         connection:
           characterEncoding: utf-8
           CharSet: utf-8
@@ -26,14 +25,18 @@ indexing-settings:
   sites:
 #    - url: https://lenta.ru
 #      name: Лента.ру
+
 #    - url: https://skillbox.ru
 #      name: Skillbox
 
-    - url: https://www.playback.ru
-      name: PlayBack.Ru
+#    - url: https://www.playback.ru
+#      name: PlayBack.Ru
 
-    - url: https://radiomv.ru
-      name: Милицейская волна
+#    - url:  https://smarfony.ru
+#      name: Смартфоны.ру
+
+#    - url: https://radiomv.ru
+#      name: Милицейская волна
 
 #    - url: https://volochek.life/
 #      name: Вышний Волочёк
@@ -42,10 +45,8 @@ indexing-settings:
 #    - url: https://dimonvideo.ru/
 #      name: ДимонВидео
 
-    - url: https://et-cetera.ru/mobile
+    - url: https://et-cetera.ru/mobile/
       name: Театр Et Cetera
 
-#       Проблемы с сертификатами
-#    - url: https://nikoartgallery.com/
-#      name: Нико галерея
-
+    - url: https://lenkom.info/
+      name: ТЕАТР Ленком

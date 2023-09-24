@@ -11,6 +11,7 @@ import searchengine.dto.statistics.TotalStatistics;
 import searchengine.model.SiteEntity;
 import searchengine.model.Status;
 
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -35,65 +36,60 @@ public class StatisticsServiceImpl implements StatisticsService {
         total.setIndexing(true);
 
         List<DetailedStatisticsItem> detailed = new ArrayList<>();
-        ResultSet allSitesResultSet = dbCommands.selectAllFromDb("site");
         List<SiteEntity> allSites = new ArrayList<>();
 
-        while (true) {
-            try {
-                if (!allSitesResultSet.next()) break;
-                SiteEntity site = new SiteEntity();
-                site.setId(allSitesResultSet.getInt("id"));
-                site.setLastError(allSitesResultSet.getString("last_error"));
-                site.setName(allSitesResultSet.getString("name"));
-                site.setStatus(Status.valueOf(allSitesResultSet.getString("status")));
-                long timestamp = allSitesResultSet.getTimestamp("status_time").getTime();
-                site.setStatusTime(LocalDateTime.ofInstant(ofEpochMilli(timestamp), TimeZone.getDefault().toZoneId()));
-                site.setUrl(allSitesResultSet.getString("url"));
-                allSites.add(site);
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
-            }
-        }
 
-        int totalPages = 0;
-        int totalLemmas = 0;
-        for (SiteEntity site : allSites) {
-            DetailedStatisticsItem item = new DetailedStatisticsItem();
-            item.setUrl(site.getUrl());
-            item.setName(site.getName());
-            item.setStatus(site.getStatus().name());
-            item.setStatusTime(site.getStatusTime().atZone(ZoneId.systemDefault()).toEpochSecond());
-            if (!site.getLastError().isEmpty()) {
-                item.setError(site.getLastError());
-            } else {
-                item.setError("");
+        try (Connection connection = dbCommands.getNewConnection()) {
+            String sqlSelect = "SELECT * FROM site";
+            ResultSet rs = connection.createStatement().executeQuery(sqlSelect);
+            while (rs.next()) {
+                SiteEntity site = new SiteEntity();
+                site.setId(rs.getInt("id"));
+                site.setLastError(rs.getString("last_error"));
+                site.setName(rs.getString("name"));
+                site.setStatus(Status.valueOf(rs.getString("status")));
+                long timestamp = rs.getTimestamp("status_time").getTime();
+                site.setStatusTime(LocalDateTime.ofInstant(ofEpochMilli(timestamp), TimeZone.getDefault().toZoneId()));
+                site.setUrl(rs.getString("url"));
+                allSites.add(site);
             }
-            ResultSet resultSetFromPageTable = dbCommands.selectCountWithParameter("page",
-                    "site_id_id", String.valueOf(site.getId()));
-            try {
-                if (resultSetFromPageTable.next()) {
-                    int pagesCount = resultSetFromPageTable.getInt("COUNT(*)");
+
+            int totalPages = 0;
+            int totalLemmas = 0;
+            for (SiteEntity site : allSites) {
+                DetailedStatisticsItem item = new DetailedStatisticsItem();
+                item.setUrl(site.getUrl());
+                item.setName(site.getName());
+                item.setStatus(site.getStatus().name());
+                item.setStatusTime(site.getStatusTime().atZone(ZoneId.systemDefault()).toEpochSecond());
+                if (!site.getLastError().isEmpty()) {
+                    item.setError(site.getLastError());
+                } else {
+                    item.setError("");
+                }
+
+                String selectCountFromPage = "SELECT COUNT(*) FROM page WHERE site_id_id ='" + site.getId() + "'";
+                ResultSet pageRs = connection.createStatement().executeQuery(selectCountFromPage);
+                if (pageRs.next()) {
+                    int pagesCount = pageRs.getInt("COUNT(*)");
                     totalPages += pagesCount;
                     item.setPages(pagesCount);
                 }
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
-            }
-            ResultSet resultSetFromLemmaTable = dbCommands.selectCountWithParameter("lemma",
-                    "site_id_id", String.valueOf(site.getId()));
-            try {
-                if (resultSetFromLemmaTable.next()) {
-                    int lemmasCount = resultSetFromLemmaTable.getInt("COUNT(*)");
+
+                String selectCountFromLemma = "SELECT COUNT(*) FROM lemma WHERE site_id_id ='" + site.getId() + "'";
+                ResultSet lemmaRs = connection.createStatement().executeQuery(selectCountFromLemma);
+                if (lemmaRs.next()) {
+                    int lemmasCount = lemmaRs.getInt("COUNT(*)");
                     totalLemmas += lemmasCount;
                     item.setLemmas(lemmasCount);
                 }
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
+                detailed.add(item);
             }
-            detailed.add(item);
+            total.setPages(totalPages);
+            total.setLemmas(totalLemmas);
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
         }
-        total.setPages(totalPages);
-        total.setLemmas(totalLemmas);
 
         StatisticsResponse response = new StatisticsResponse();
         StatisticsData data = new StatisticsData();

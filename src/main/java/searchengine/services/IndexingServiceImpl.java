@@ -7,15 +7,16 @@ import searchengine.config.SitesList;
 import searchengine.dto.indexing.SiteIndexer;
 import searchengine.model.*;
 
-import java.util.concurrent.ForkJoinPool;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class IndexingServiceImpl implements IndexingService {
 
     private final SitesList sites;
-
-    private final SiteRepository siteRepository;
+    @Autowired
+    private SiteRepository siteRepository;
     @Autowired
     private PageRepository pageRepository;
 
@@ -25,27 +26,34 @@ public class IndexingServiceImpl implements IndexingService {
     @Autowired
     private final IndexRepository indexRepository;
 
-    private volatile boolean isStopped = false;
+    private final List<SiteIndexer> siteIndexerList = new ArrayList<>();
 
-    private ForkJoinPool pool;
-    private SiteIndexer task;
     @Override
     public SiteIndexer startIndexing() {
         long start = System.currentTimeMillis();
 
-        task = new SiteIndexer(sites.getSites(), siteRepository, pageRepository, lemmaRepository, indexRepository, isStopped);
-        pool = ForkJoinPool.commonPool();
-        pool.invoke(task);
+        sites.getSites().forEach(site -> {
+            SiteIndexer siteIndexer = new SiteIndexer(site,siteRepository, pageRepository, lemmaRepository, indexRepository,
+                    false);
+            siteIndexerList.add(siteIndexer);
+            siteIndexer.start();
+        });
+
+        for (SiteIndexer siteIndexer : siteIndexerList) {
+            try {
+                siteIndexer.join();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
         System.out.println("Индексация сайтов завершена за " + (System.currentTimeMillis() - start) + " миллисекунд");
         return null;
     }
 
     @Override
     public SiteIndexer stopIndexing() {
-        isStopped = true;
-        if (pool != null) {
-            pool.shutdown();
-        }
+        siteIndexerList.forEach(siteIndexer -> siteIndexer.getPool().shutdown());
 
         System.out.println("Индексация завершена по требованию пользователя");
         return null;

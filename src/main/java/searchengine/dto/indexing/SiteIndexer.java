@@ -1,116 +1,127 @@
 package searchengine.dto.indexing;
 
+import lombok.Getter;
 import searchengine.config.Site;
 import searchengine.dto.db.DbCommands;
 import searchengine.model.*;
 
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.RecursiveAction;
+import java.util.concurrent.ForkJoinPool;
 
 
-public class SiteIndexer extends RecursiveAction {
-    private final List<Site> sites;
-    private final List<SiteIndexer> siteIndexerList = new ArrayList<>();
+@Getter
+public class SiteIndexer extends Thread {
+    private final Site site;
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
     private final LemmaRepository lemmaRepository;
     private final IndexRepository indexRepository;
-    private final boolean isStoped;
-    private DbCommands dbCommands = new DbCommands();
+    private volatile Set<PageUrl> uniqueUrl;
+    private final Map<String, Integer> lemmasCounter;
+    private boolean isStopped;
+    private ForkJoinPool pool;
+    private final DbCommands dbCommands = new DbCommands();
 
-    public SiteIndexer(List<Site> sites, SiteRepository siteRepository,
+    public SiteIndexer(Site site, SiteRepository siteRepository,
                        PageRepository pageRepository, LemmaRepository lemmaRepository,
-                       IndexRepository indexRepository, boolean isStoped) {
-        this.sites = sites;
+                       IndexRepository indexRepository, boolean isStopped) {
+        this.site = site;
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
         this.lemmaRepository = lemmaRepository;
         this.indexRepository = indexRepository;
-        this.isStoped = isStoped;
+        this.isStopped = isStopped;
+        uniqueUrl = new HashSet<>();
+        lemmasCounter = new HashMap<>();
     }
 
-    @Override
-    protected void compute() {
-        //Обходим список сайтов, удаляя пройденные создаем и разветвляем на форки SiteIndexers
-        Iterator<Site> iterator = sites.iterator();
-
-        while (iterator.hasNext()) {
-            Site currentSite = iterator.next();
-            iterator.remove();
-            SiteIndexer newIndexer = new SiteIndexer(sites, siteRepository, pageRepository, lemmaRepository,
-                    indexRepository, isStoped);
-            siteIndexerList.add(newIndexer);
-            newIndexer.fork();
-            newIndexer.siteEntityCreator(currentSite);
-        }
-
-        //Объединяем каждый ответвленный SiteIndexеr
-        for (SiteIndexer indexer : siteIndexerList) {
-            if (!isStoped) {
-                indexer.join();
-            } else {
-                System.out.println("STOP FROM COMPUTE");
-                break;
-            }
+    public void run() {
+        while (!Thread.currentThread().isInterrupted()) {
+            this.siteEntityCreator();
         }
     }
 
-    private void siteEntityCreator(Site site) {
+    public void siteEntityCreator() {
         System.out.println("Start " + Thread.currentThread().getName() + "\n");
-        deleteDataFromDB(site.getUrl());
+        try (Connection connection = dbCommands.getNewConnection()) {
+            deleteDataFromDB(connection, site.getUrl());
 
+            SiteEntity newSiteEntity = createSiteEntity();
+            siteRepository.save(newSiteEntity);
+
+            List<String> firstUrl = new ArrayList<>();
+            firstUrl.add(site.getUrl());
+
+            PageIndexer pageIndexer = new PageIndexer(newSiteEntity, firstUrl, this);
+
+            pool = new ForkJoinPool();
+            pool.invoke(pageIndexer);
+
+            if (!newSiteEntity.getLastError().isEmpty()) {
+                dbCommands.updateDbData("site", "status", Status.FAILED.name(), "url", site.getUrl());
+
+                String sqlSelect = "SELECT * FROM site WHERE url ='" + site.getUrl() + "'";
+                ResultSet rs = connection.createStatement().executeQuery(sqlSelect);
+                if (rs.next()) {
+                    String siteId = rs.getString("id");
+                    String pageId;
+
+                    String selectFromPage = "SELECT * FROM page WHERE site_id_id ='" + siteId + "'";
+                    ResultSet pageRs = connection.createStatement().executeQuery(selectFromPage);
+                    while (pageRs.next()) {
+                        pageId = pageRs.getString("id");
+                        dbCommands.deleteFromDb("index_table", "page_id_id", pageId);
+                    }
+                    dbCommands.deleteFromDb("page", "site_id_id", siteId);
+                    dbCommands.deleteFromDb("lemma", "site_id_id", siteId);
+                }
+            } else {
+                dbCommands.updateDbData("site", "status", Status.INDEXED.name(), "url", site.getUrl());
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+        System.out.println("Stop " + Thread.currentThread().getName() + "\n");
+        this.interrupt();
+    }
+
+    private SiteEntity createSiteEntity() {
         SiteEntity newSiteEntity = new SiteEntity();
         newSiteEntity.setLastError("");
         newSiteEntity.setName(site.getName());
         newSiteEntity.setStatus(Status.INDEXING);
         newSiteEntity.setStatusTime(LocalDateTime.now());
-        newSiteEntity.setUrl(site.getUrl());
-        siteRepository.save(newSiteEntity);
-
-        PageIndexer pageIndexer = new PageIndexer(newSiteEntity, pageRepository, lemmaRepository, indexRepository);
-        pageIndexer.parsePages();
-
-        if (!newSiteEntity.getLastError().isEmpty()) {
-            dbCommands.updateDbData("site", "status", Status.FAILED.name(), "url", site.getUrl());
-            ResultSet resultSet = dbCommands.selectFromDbWithParameters("site", "url", site.getUrl());
-            try {
-                if (resultSet.next()) {
-                    String siteId = resultSet.getString("id");
-                    String pageId;
-                    ResultSet resultSetFromPage = dbCommands.selectFromDbWithParameters("page", "site_id_id", siteId);
-                    while (resultSetFromPage.next()) {
-                        pageId = resultSetFromPage.getString("id");
-                        dbCommands.deleteFromDb("index_table","page_id_id",pageId);
-                    }
-                    dbCommands.deleteFromDb("page", "site_id_id", siteId);
-                    dbCommands.deleteFromDb("lemma","site_id_id", siteId);
-                }
-            } catch (SQLException e) {
-                throw new RuntimeException(e);
-            }
-        } else {
-            dbCommands.updateDbData("site", "status", Status.INDEXED.name(), "url", site.getUrl());
+        String siteUrl = site.getUrl();
+        StringBuilder siteUrlWithHttps = new StringBuilder(site.getUrl());
+        if (siteUrl.charAt(4) != 's') {
+            siteUrlWithHttps.insert(4, 's');
         }
-        System.out.println("Stop " + Thread.currentThread().getName() + "\n");
+        newSiteEntity.setUrl(siteUrlWithHttps.toString());
+        return newSiteEntity;
     }
 
-    private void deleteDataFromDB(String url) {
-        ResultSet resultSet = dbCommands.selectFromDbWithParameters("site", "url", url);
-        try {
-            if (resultSet.next()) {
+
+    private void deleteDataFromDB(Connection connection, String url) {
+        String sqlSelect = "SELECT * FROM site WHERE url='" + url + "'";
+        try (ResultSet rs = connection.createStatement().executeQuery(sqlSelect)) {
+            if (rs.next()) {
                 dbCommands.deleteFromDb("site", "url", url);
-                String siteId = resultSet.getString("id");
+                String siteId = rs.getString("id");
                 String pageId;
-                ResultSet resultSetFromPage = dbCommands.selectFromDbWithParameters("page", "site_id_id", siteId);
-                while (resultSetFromPage.next()) {
-                    pageId = resultSetFromPage.getString("id");
-                    dbCommands.deleteFromDb("index_table","page_id_id",pageId);
+
+                String selectFromPage = "SELECT * FROM page WHERE site_id_id='" + siteId + "'";
+                try (ResultSet pageRs = connection.createStatement().executeQuery(selectFromPage)) {
+                    while (pageRs.next()) {
+                        pageId = pageRs.getString("id");
+                        dbCommands.deleteFromDb("index_table", "page_id_id", pageId);
+                    }
                 }
                 dbCommands.deleteFromDb("page", "site_id_id", siteId);
-                dbCommands.deleteFromDb("lemma","site_id_id", siteId);
+                dbCommands.deleteFromDb("lemma", "site_id_id", siteId);
             }
         } catch (SQLException e) {
             throw new RuntimeException(e);
