@@ -170,7 +170,7 @@ public class SearchingServiceImpl implements SearchingService {
 
                     String[] queryArray = query.trim().split(" ");
 
-                    // Формируем строку для поиска по тексту страницы, с послудющим уменьшением
+                    // Формируем строку для поиска по тексту страницы, с последующим уменьшением
                     // используемых лемм, от общего количества к одной лемме
                     createSnippet(queryArray, pageData, snippetList);
 
@@ -235,7 +235,7 @@ public class SearchingServiceImpl implements SearchingService {
     }
 
     private Map<Integer, List<LemmaEntity>> getAndFilterLemmasFromOneSite(Connection connection,
-                                                                        Map<String, Integer> lemmasFromQuery,
+                                                                          Map<String, Integer> lemmasFromQuery,
                                                                           int siteId) throws SQLException {
         Map<Integer, List<LemmaEntity>> result = new HashMap<>();
         for (var entry : lemmasFromQuery.entrySet()) {
@@ -328,36 +328,63 @@ public class SearchingServiceImpl implements SearchingService {
         return result;
     }
 
-    private String getPatternForLemmas(String query) {
-        String startPattern = "(?=[^.]*(?:";
-        StringBuilder pattern = new StringBuilder();
-        String[] queryArray = query.trim().split(" ");
+    private String findSentencePattern(String[] queryArray) {
+//        String startPattern = "\b";
+        StringBuilder pattern = new StringBuilder("[^.!?;]*[");
+//        String[] queryArray = query.trim().split(" ");
 
         if (queryArray.length != 0) {
             String upper = queryArray[0].substring(0, 1).toUpperCase(Locale.ROOT);
             String lower = queryArray[0].substring(0, 1).toLowerCase(Locale.ROOT);
             String subStr = queryArray[0].substring(1);
-            pattern.append(startPattern).append(upper).append("|").append(lower).append(")")
-                    .append(subStr).append(")((?:^|[A-ZА-Я0-9Ё])[^.]+[!?]|(?:^|[A-ZА-Я0-9Ё])[^.]+\\.)");
+            pattern.append(upper).append(lower).append("]")
+                    .append(subStr);
 
             if (queryArray.length > 1) {
-                int indexForInsert = pattern.indexOf("((?:");
-                String secondHalfForRegEx = pattern.substring(indexForInsert);
-
-                pattern = new StringBuilder("(");
-                for (int i = 0; i < queryArray.length; i++) {
+                pattern.append(" ");
+                for (int i = 1; i < queryArray.length; i++) {
                     upper = queryArray[i].substring(0, 1).toUpperCase(Locale.ROOT);
                     lower = queryArray[i].substring(0, 1).toLowerCase(Locale.ROOT);
                     subStr = queryArray[i].substring(1);
 
-                    pattern.append(startPattern).append(upper).append("|").append(lower).append(")")
-                            .append(subStr).append(")");
-                    if (i == queryArray.length - 1) {
-                        pattern.append(")");
+                    pattern.append("(").append(upper).append("|").append(lower).append(")")
+                            .append(subStr);
+                    if (i != queryArray.length - 1) {
+                        pattern.append(" ");
                     }
                 }
-                pattern.append(secondHalfForRegEx);
             }
+            pattern.append("[^.!?;]*");
+        }
+        return pattern.toString();
+    }
+
+    private String equalsMatchingWords(String[] queryArray) {
+        StringBuilder pattern = new StringBuilder("\\b[");
+//        String[] queryArray = query.trim().split(" ");
+
+        if (queryArray.length != 0) {
+            String upper = queryArray[0].substring(0, 1).toUpperCase(Locale.ROOT);
+            String lower = queryArray[0].substring(0, 1).toLowerCase(Locale.ROOT);
+            String subStr = queryArray[0].substring(1);
+            pattern.append(upper).append(lower).append("]")
+                    .append(subStr);
+
+            if (queryArray.length > 1) {
+                pattern.append(" ");
+                for (int i = 1; i < queryArray.length; i++) {
+                    upper = queryArray[i].substring(0, 1).toUpperCase(Locale.ROOT);
+                    lower = queryArray[i].substring(0, 1).toLowerCase(Locale.ROOT);
+                    subStr = queryArray[i].substring(1);
+
+                    pattern.append("[").append(upper).append(lower).append("]")
+                            .append(subStr);
+                    if (i != queryArray.length - 1) {
+                        pattern.append(" ");
+                    }
+                }
+            }
+            pattern.append("\\b");
         }
         return pattern.toString();
     }
@@ -389,46 +416,40 @@ public class SearchingServiceImpl implements SearchingService {
     }
 
     private void createSnippet(String[] queryArray, String pageData, List<String> snippetList) {
-        for (int j = queryArray.length - 1; j >= 0; j--) {
-            StringBuilder lemmasCollector = new StringBuilder();
-            for (int k = 0; k < j + 1; k++) {
-                lemmasCollector.append(queryArray[k]).append(" ");
-            }
 
-            Set<String> sentenceMatches = new HashSet<>();
+        Set<String> sentenceMatches = new HashSet<>();
 
-            String patternForLemmas = getPatternForLemmas(lemmasCollector.toString());
-            Pattern pattern = Pattern.compile(patternForLemmas);
-            Matcher matcher = pattern.matcher(pageData);
-            while (matcher.find()) {
-                String sentence = matcher.group();
-                for (String lemma : queryArray) {
-                    List<String> lemmaVariables = getMatches(lemma, sentence);
-                    if (!lemmaVariables.isEmpty()) {
-                        sentenceMatches.add(sentence);
-                    }
-                }
-            }
-
-            // Добавление тега <b> вокруг искомых лемм
-            for (String sentence : sentenceMatches) {
-                for (String lemma : queryArray) {
-                    List<String> lemmaVariables = getMatches(lemma, sentence);
-                    if (!lemmaVariables.isEmpty()) {
-                        StringBuilder wordForEquals = new StringBuilder();
-                        for (String currentLemma : lemmaVariables) {
-                            if (wordForEquals.toString().contains(currentLemma)) {
-                                continue;
-                            }
-                            sentence = trimSnippetSentence(sentence, currentLemma);
-                            sentence = sentence.replace(currentLemma, "<b>" + currentLemma + "</b>");
-                            wordForEquals.append(currentLemma);
-                        }
-                    }
-                }
-                snippetList.add(sentence);
+        String patternForLemmas = findSentencePattern(queryArray);
+        Pattern pattern = Pattern.compile(patternForLemmas);
+        Matcher matcher = pattern.matcher(pageData);
+        while (matcher.find()) {
+            String sentence = matcher.group();
+            String equalsMatchingWordsPattern = equalsMatchingWords(queryArray);
+            Matcher wordsMatcher = Pattern.compile(equalsMatchingWordsPattern).matcher(sentence);
+            while (wordsMatcher.find()) {
+                sentenceMatches.add(matcher.group());
             }
         }
+
+        // Добавление тега <b> вокруг искомых лемм
+        for (String sentence : sentenceMatches) {
+            for (String lemma : queryArray) {
+                List<String> lemmaVariables = getMatches(lemma, sentence);
+                if (!lemmaVariables.isEmpty()) {
+                    StringBuilder wordForEquals = new StringBuilder();
+                    for (String currentLemma : lemmaVariables) {
+                        if (wordForEquals.toString().contains(currentLemma)) {
+                            continue;
+                        }
+                        sentence = trimSnippetSentence(sentence, currentLemma);
+                        sentence = sentence.replace(currentLemma, "<b>" + currentLemma + "</b>");
+                        wordForEquals.append(currentLemma);
+                    }
+                }
+            }
+            snippetList.add(sentence);
+        }
+
     }
 
     private String trimSnippetSentence(String sentence, String lemma) {
